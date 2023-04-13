@@ -76,7 +76,7 @@ async function test(agent: BskyAgent) {
   console.log(res)
 }
 
-async function process(agent: BskyAgent) {
+async function process_notifs(agent: BskyAgent) {
   console.log("processing")
   let notifs = await agent.listNotifications();
   for (let n of notifs.data.notifications) {
@@ -117,10 +117,8 @@ async function main() {
   });
   console.log("logged in")
   while (true) {
-    await process(agent);
-    console.log("sleeping");
+    await process_notifs(agent);
     await new Promise(r => setTimeout(r, 1000));
-    console.log("end of loop");
   }
   console.log("exited loop")
 }
