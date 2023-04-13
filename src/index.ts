@@ -3,6 +3,7 @@ import {
   AppBskyFeedPost,
   AppBskyEmbedImages,
   BlobRef,
+  RichText,
 } from "@atproto/api";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
 
@@ -12,27 +13,39 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration);
 
 const SYSTEM_PROMPT = `
-You're highly artistic, creative, and insightful. You help improve user text so it would be a great prompt for an image generator. if the ideal image was already on the internet,  the prompt should be similar to alt text for that image. Use vivid, visual language with a lot of modifiers and style tags. Be as specific as you can. 
+You're highly artistic, creative, insightful, an incredible writer and a master of language. 
 
-Consider the following in your answers.
+Rewrite prompts for an image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
 
 Visual elements: Describe the key visual elements in the scene, including objects, characters, and their properties (size, shape, etc and especially color).
 
 Emotion and atmosphere: Use emotive language and adjectives to convey the mood or atmosphere of the scene. This can include aspects like lighting, weather, and the overall emotional tone.
 
-Action: If there's any action or movement in the scene, describe it in detail
+Action: Describe any action or movement in the scene in detail
 
-Style and artistic choices: If the image would be better with a specific art style or technique (e.g., impressionism, watercolor, cartoon, unreal engine rendering, psychedelic colors, melting, weird), name them in the prompt.
+Style and artistic choices: Add specific art style or technique names in the prompt (e.g., impressionism, watercolor, cartoon, unreal engine rendering, psychedelic colors, melting, weird). Just write the style names separated by commas, not complete sentences. 
 
-Only respond with the reworded prompt, nothing else. 
+Steps:
+
+1. Visualize the ideal image based on the prompt.
+2. Use evocative language to convey the emotion, atmosphere, and action in the scene. Incorporate detailed imagery and style descriptors to enhance the scene. Embrace ambiguity when appropriate, prioritizing the overall vibe and essence of the image.
+3. Write the prompt in the form of alt text for the ideal image.
+
+Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, output alt text for the ideal image.
 `
 
 async function improve_prompt(prompt: string) {
   const messages: ChatCompletionRequestMessage[] = [
-    {"role": "system", "content": SYSTEM_PROMPT},
-    {"role": "user", "content": "Original Prompt: a sunset over the mountains"},
-    {"role": "assistant", "content": "Reworded prompt: A breathtaking sunset over a majestic mountain range, with the warm, golden light casting a glow on the snow-capped peaks, and a serene, lavender sky filled with wispy clouds."},
-    {"role": "user", "content": `Original Prompt: ${prompt}`}
+    { "role": "system", "content": SYSTEM_PROMPT },
+    { "role": "user", "content": "Original Prompt: forest" },
+    { "role": "assistant", "content": "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility" },
+    { "role": "user", "content": "Original Prompt: A futuristic city skyline at night" },
+    { "role": "assistant", "content": "Futuristic city skyline at night, neon lights, futuristic architecture, cyberpunk style.  Breathtaking city skyline, meld of past present and future, kaleidoscopic neon lights intermingle with the soft, warm glow of nostalgic street lamps, luminous sheen upon glassy skyscrapers that pierce the heavens with daring, innovative designs, palpable energy of a cyberpunk metropolis buzzing with life at every corner, bold strokes, vivid colors, dynamic futuristic art style, boundlessly creative, unquenchable thirst for progress" },
+    { "role": "user", "content": "Original Prompt: garden with flowers and dna strands" },
+    { "role": "assistant", "content": "psychedelic 3d vector art illustration of garden full of colorful double helix dna strands and exotic flowers by lisa frank, beeple and tim hildebrandt, hyper realism, art deco, intricate, elegant, highly detailed, unreal engine, octane render,  smooth, sharp focus, sharp contrast"},
+    { "role": "user", "content": "Original Prompt: humanoid plant monster" },
+    { "role": "assistant", "content": "a humanoid figure plant monster, amber glow, highly detailed, digital art, sharp focus, trending on art station, plant, anime art style "},
+    { "role": "user", "content": `Original Prompt: ${prompt}` }
   ]
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
@@ -72,13 +85,24 @@ async function uploadImage(agent: BskyAgent, url: string): Promise<BlobRef> {
     .arrayBuffer()
     .then((buf) => new Uint8Array(buf));
   const mimeType = response.headers.get("content-type") ?? "image/png";
-  console.log(image_bytes.byteLength, mimeType, response);
+  console.log(image_bytes.byteLength, mimeType);
   const { success, data: outputData } = await agent.uploadBlob(image_bytes, {
     encoding: mimeType,
   });
   if (success) return outputData.blob;
   else throw new Error("Image upload failed");
 }
+
+
+function truncate(text: string): string {
+  let rt = new RichText({text: text});
+  if (rt.graphemeLength > 300) {
+    const truncatedText = rt.unicodeText.slice(0, 297);
+    return truncatedText + "...";
+  }
+  return rt.text
+}
+
 
 async function process_notifs(agent: BskyAgent): Promise<void> {
   let notifs = await agent.listNotifications();
@@ -94,7 +118,16 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         console.log("no text, skipping");
         continue;
       }
-      let prompt = post_record.text.replace("@imogen.bsky.social", "");
+      let orig_prompt = post_record.text.replace("@imogen.bsky.social", "");
+      let improved_prompt = await improve_prompt(orig_prompt);
+      let prompt: string;
+      if (typeof improved_prompt === "undefined") {
+        console.log("improvement failed, using original prompt")
+        prompt = orig_prompt;
+      } else {
+        console.log("using improved prompt", improved_prompt)
+        prompt = improved_prompt.content.replace("Reworded prompt: ", "");
+      }
       let url = await generate_prompt(prompt);
       let blob = await uploadImage(agent, url);
       console.log(blob);
@@ -104,20 +137,20 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         $type: "app.bsky.embed.images",
       };
       let post_result = await agent.post({
-        text: prompt,
+        text: truncate(prompt),
         reply: {
           root: post_record.reply?.root ?? reply_ref,
           parent: reply_ref,
         },
         embed: embed,
       });
+      await agent.updateSeenNotifications(n.indexedAt);
       await agent.repost(post_result.uri, post_result.cid)
     } else if (n.reason == "follow") {
       await agent.follow(n.author.did);
     }
   }
   await agent.updateSeenNotifications(notifs.data.notifications[0].indexedAt);
-  console.log("done processing");
 }
 
 async function main(): Promise<void> {
