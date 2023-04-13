@@ -62,15 +62,15 @@ async function generate_prompt(prompt: string) {
     username: "imogen",
     cost: 0,
   };
-  let resp = await fetch("https://oneirograf-prod.fly.dev/prompt", {
+  const resp = await fetch("https://oneirograf-prod.fly.dev/prompt", {
     method: "POST",
     body: JSON.stringify(params),
   }).then((r) => r.json());
   console.log(resp);
-  let id = resp["prompt_id"];
+  const id = resp["prompt_id"];
   await new Promise((r) => setTimeout(r, 2000));
   while (true) {
-    let result = await fetch(
+    const result = await fetch(
       "https://oneirograf-prod.fly.dev/prompt/" + id
     ).then((r) => r.json());
     console.log(result);
@@ -95,7 +95,7 @@ async function uploadImage(agent: BskyAgent, url: string): Promise<BlobRef> {
 
 
 function truncate(text: string): string {
-  let rt = new RichText({text: text});
+  const rt = new RichText({text: text});
   if (rt.graphemeLength > 300) {
     const truncatedText = rt.unicodeText.slice(0, 297);
     return truncatedText + "...";
@@ -105,21 +105,21 @@ function truncate(text: string): string {
 
 
 async function process_notifs(agent: BskyAgent): Promise<void> {
-  let notifs = await agent.listNotifications();
-  for (let n of notifs.data.notifications) {
+  const notifs = await agent.listNotifications();
+  for (const n of notifs.data.notifications) {
     if (n.isRead) continue;
     console.log(n);
     if (n.reason == "mention" || n.reason == "reply") {
       const reply_ref = { uri: n.uri, cid: n.cid };
       await agent.like(n.uri, n.cid)
-      let post_record: AppBskyFeedPost.Record =
+      const post_record: AppBskyFeedPost.Record =
         n.record as AppBskyFeedPost.Record;
       if (!post_record.text) {
         console.log("no text, skipping");
         continue;
       }
-      let orig_prompt = post_record.text.replace("@imogen.bsky.social", "");
-      let improved_prompt = await improve_prompt(orig_prompt);
+      const orig_prompt = post_record.text.replace("@imogen.bsky.social", "");
+      const improved_prompt = await improve_prompt(orig_prompt);
       let prompt: string;
       if (typeof improved_prompt === "undefined") {
         console.log("improvement failed, using original prompt")
@@ -128,15 +128,15 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         console.log("using improved prompt", improved_prompt)
         prompt = improved_prompt.content.replace("Reworded prompt: ", "");
       }
-      let url = await generate_prompt(prompt);
-      let blob = await uploadImage(agent, url);
+      const url = await generate_prompt(prompt);
+      const blob = await uploadImage(agent, url);
       console.log(blob);
-      let embed: AppBskyEmbedImages.Main = {
+      const embed: AppBskyEmbedImages.Main = {
         images: [{ image: blob, alt: prompt }],
         // $type is required for it to show up and is different from the ts type
         $type: "app.bsky.embed.images",
       };
-      let post_result = await agent.post({
+      const post_result = await agent.post({
         text: truncate(prompt),
         reply: {
           root: post_record.reply?.root ?? reply_ref,
