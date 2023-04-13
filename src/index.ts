@@ -11,12 +11,6 @@ import { machine } from "os";
 // declare session-data
 // let savedSessionData: AtpSessionData;
 
-const agent = new BskyAgent({
-  service: "https://bsky.social",
-  // persistSession: (evt: AtpSessionEvent, sess?: AtpSessionData) => {
-  //   if (sess) savedSessionData = sess;
-  // },
-});
 
 async function generate(prompt: string) {
   const params = {
@@ -44,7 +38,7 @@ async function generate(prompt: string) {
   }
 }
 
-async function uploadImage(url: string, agent: BskyAgent) {
+async function uploadImage(agent: BskyAgent, url: string) {
   const response = await fetch(url);
   const data: Uint8Array = await response.arrayBuffer().then((buf) => new Uint8Array(buf));
   const mimeType = response.headers.get('content-type') || 'application/octet-stream';
@@ -57,7 +51,7 @@ async function uploadImage(url: string, agent: BskyAgent) {
   }
 }
 
-async function test() {
+async function test(agent: BskyAgent) {
   await agent.login({
     identifier: "technillogue@gmail.com",
     password: process.env.PASSWORD,
@@ -66,10 +60,10 @@ async function test() {
   // let url = "https://cdn.bsky.social/imgproxy/ex4odoyMOnCKkEv9at2w_MTYTDA7G3zKXHxnOCoZD3A/rs:fit:1000:1000:1:0/plain/bafkreidvhy3sfuefathywqqqx6viruzbpthovfc6hc2wrypmf3kv2ivz5i@jpeg"
   // let url = "https://image-gen-worker.drysys.workers.dev/prod/45346/0.png"
   let url = "https://cdn.bsky.social/imgproxy/u0Poj9hozNFbVtZZNnRZyYxQMuCT2SyKsVCsI_zHwDc/rs:fit:2000:2000:1:0/plain/bafkreidr5ynfxs77hwperowi7lwzfbt44xcwqs5pdzywpuudy3c24663ny@jpeg"
-  let blob = await uploadImage(url, agent);
+  let blob = await uploadImage(agent, url);
   console.log(blob)
   let embed = { images: [{ image: blob, alt: "image test" }], $type: "app.bsky.embed.images" }
-  
+
   console.log(embed)
   let record = {
     text: "i can't believe it's not an image attachment",
@@ -82,12 +76,8 @@ async function test() {
   console.log(res)
 }
 
-async function main() {
-  await agent.login({
-    identifier: "technillogue@gmail.com",
-    password: process.env.PASSWORD,
-  });
-
+async function process(agent: BskyAgent) {
+  console.log("processing")
   let notifs = await agent.listNotifications();
   for (let n of notifs.data.notifications) {
     if (n.isRead) continue;
@@ -104,10 +94,10 @@ async function main() {
       }
       let prompt = record.text.replace("@imogen.bsky.social", "");
       let url = await generate(prompt);
-      let blob = await uploadImage(url, agent);
+      let blob = await uploadImage(agent, url);
       console.log(blob)
       let embed = { images: [{ image: blob, alt: prompt }], $type: "app.bsky.embed.images" }
-    
+
       await agent.post({
         text: prompt,
         reply: { root: record.reply?.root ?? ref, parent: ref },
@@ -116,7 +106,26 @@ async function main() {
     }
   }
   await agent.updateSeenNotifications(notifs.data.notifications[0].indexedAt);
+  console.log("done processing")
+}
+
+async function main() {
+  const agent = new BskyAgent({ service: "https://bsky.social" });
+  await agent.login({
+    identifier: "technillogue@gmail.com",
+    password: process.env.PASSWORD,
+  });
+  console.log("logged in")
+  while (true) {
+    await process(agent);
+    console.log("sleeping");
+    await new Promise(r => setTimeout(r, 1000));
+    console.log("end of loop");
+  }
+  console.log("exited loop")
 }
 
 main();
 // generate("i am a cat").then(console.log)
+
+// aaa
