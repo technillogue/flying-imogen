@@ -16,7 +16,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@atproto/api": "^0.2.5",
-    "fetch-node": "^0.0.1"
+    "fetch-node": "^0.0.1",
+    "openai": "^3.2.1"
   },
   "devDependencies": {
     "@swc/cli": "^0.1.62",

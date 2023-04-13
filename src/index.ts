@@ -4,8 +4,45 @@ import {
   AppBskyEmbedImages,
   BlobRef,
 } from "@atproto/api";
+import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
 
-async function generate(prompt: string) {
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
+const SYSTEM_PROMPT = `
+You're highly artistic, creative, and insightful. You help improve user text so it would be a great prompt for an image generator. if the ideal image was already on the internet,  the prompt should be similar to alt text for that image. Use vivid, visual language with a lot of modifiers and style tags. Be as specific as you can. 
+
+Consider the following in your answers.
+
+Visual elements: Describe the key visual elements in the scene, including objects, characters, and their properties (size, shape, etc and especially color).
+
+Emotion and atmosphere: Use emotive language and adjectives to convey the mood or atmosphere of the scene. This can include aspects like lighting, weather, and the overall emotional tone.
+
+Action: If there's any action or movement in the scene, describe it in detail
+
+Style and artistic choices: If the image would be better with a specific art style or technique (e.g., impressionism, watercolor, cartoon, unreal engine rendering, psychedelic colors, melting, weird), name them in the prompt.
+
+Only respond with the reworded prompt, nothing else. 
+`
+
+async function improve_prompt(prompt: string) {
+  const messages: ChatCompletionRequestMessage[] = [
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "user", "content": "Original Prompt: a sunset over the mountains"},
+    {"role": "assistant", "content": "Reworded prompt: A breathtaking sunset over a majestic mountain range, with the warm, golden light casting a glow on the snow-capped peaks, and a serene, lavender sky filled with wispy clouds."},
+    {"role": "user", "content": `Original Prompt: ${prompt}`}
+  ]
+  const completion = await openai.createChatCompletion({
+    model: "gpt-3.5-turbo",
+    messages: messages,
+  });
+  console.log(completion.data.choices[0].message);
+  return completion.data.choices[0].message;
+}
+
+async function generate_prompt(prompt: string) {
   const params = {
     model: "verdant",
     params: { prompts: [{ text: prompt }] },
@@ -50,6 +87,7 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
     console.log(n);
     if (n.reason == "mention" || n.reason == "reply") {
       const reply_ref = { uri: n.uri, cid: n.cid };
+      await agent.like(n.uri, n.cid)
       let post_record: AppBskyFeedPost.Record =
         n.record as AppBskyFeedPost.Record;
       if (!post_record.text) {
@@ -57,7 +95,7 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         continue;
       }
       let prompt = post_record.text.replace("@imogen.bsky.social", "");
-      let url = await generate(prompt);
+      let url = await generate_prompt(prompt);
       let blob = await uploadImage(agent, url);
       console.log(blob);
       let embed: AppBskyEmbedImages.Main = {
@@ -65,7 +103,7 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         // $type is required for it to show up and is different from the ts type
         $type: "app.bsky.embed.images",
       };
-      await agent.post({
+      let post_result = await agent.post({
         text: prompt,
         reply: {
           root: post_record.reply?.root ?? reply_ref,
@@ -73,6 +111,9 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
         },
         embed: embed,
       });
+      await agent.repost(post_result.uri, post_result.cid)
+    } else if (n.reason == "follow") {
+      await agent.follow(n.author.did);
     }
   }
   await agent.updateSeenNotifications(notifs.data.notifications[0].indexedAt);
