@@ -19,6 +19,7 @@ RUN pnpm run build
 FROM node:18-alpine AS runner
 WORKDIR /app
 
-COPY --from=deps /app/node_modules ./node_modules/ # prod only
+ # prod only
+COPY --from=deps /app/node_modules /app/node_modules/
 COPY --from=builder /app/dist/index.js /app/
 ENTRYPOINT ["/usr/local/bin/node", "/app/index.js"]

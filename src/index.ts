@@ -4,8 +4,11 @@ import {
   AppBskyEmbedImages,
   BlobRef,
   RichText,
+  AppBskyFeedDefs,
 } from "@atproto/api";
+import { Notification } from "@atproto/api/src/client/types/app/bsky/notification/listNotifications";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
+
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
@@ -57,37 +60,12 @@ async function improve_prompt(prompt: string) {
   return completion.data.choices[0].message;
 }
 
-async function get_aesthetic_score(text: string): Promise<number> {
-  const resp = await fetch("https://good-post-detector.fly.dev/good", {
-    method: "POST",
-    body: text,
-  });
-  return parseFloat(await resp.text());
-}
 
-interface ImageDescriptions {
-  descriptions: string[]
-}
+type valid_model = "verdant" | "vqgan";
 
-async function describe_image(
-  image_url: string,
-  personality: string = "Creative"
-): Promise<ImageDescriptions | object> {
-  const descriptions = await fetch(
-    `http://cliptalk.tenant-dryad-spark.knative.chi.coreweave.com/url?personality=${personality}`,
-    { method: "POST", body: image_url }
-  ).then((r) => r.json());
-  console.log("descriptions: ", descriptions);
-  if (Array.isArray(descriptions) && descriptions.every((d) => typeof d === "string"))
-    return { descriptions: descriptions };
-  return descriptions
-}
-
-
-
-async function generate_prompt(prompt: string) {
+async function generate_prompt(prompt: string, model: valid_model = "verdant"): Promise<string> {
   const params = {
-    model: "verdant",
+    model: model,
     params: { prompts: [{ text: prompt }] },
     username: process.env.SPARKL_USERNAME,
   };
@@ -133,6 +111,70 @@ function truncate(text: string): string {
   return rt.text
 }
 
+const USERNAME = "@imogen.bsky.social"
+
+type MaybeRecord = Omit<AppBskyFeedPost.Record, "CreatedAt"> | undefined;
+
+
+async function get_nonempty_parent(agent: BskyAgent, uri: string): Promise<string | undefined> {
+  console.log("getting parent of ", uri)
+  let thread_view: AppBskyFeedDefs.ThreadViewPost | unknown = await agent.getPostThread({uri: uri, depth: 3}).then((r) => r.data.thread)
+  
+  while (AppBskyFeedDefs.isThreadViewPost (thread_view)) {
+    if (AppBskyFeedPost.isRecord(thread_view.post.record)) {
+      const maybe_text = thread_view.post.record.text.replace(USERNAME, "").trim()
+      if (maybe_text)
+        return maybe_text
+    }
+    thread_view = thread_view.parent
+  }
+  return undefined
+}
+
+async function handle_notification(agent: BskyAgent, notif: Notification): Promise<MaybeRecord> {
+  const post_record: AppBskyFeedPost.Record =
+    notif.record as AppBskyFeedPost.Record;
+
+  // debugger;
+
+  const post_text = post_record.text.replace(USERNAME, "") || await get_nonempty_parent(agent, notif.uri)
+  if (!post_text) {
+    console.log("no text in post or parent, ignoring")
+    return undefined
+  }
+  // if it's an image, describe it, then respond to that
+
+  // later, ideally, adapting system prompts instead of langchain: 
+  // if the conversation calls for generating an image, decide if it's more dreamy or realistic
+  // and use either vqgan or sd to generate an image
+
+  const improved_prompt = await improve_prompt(post_text);
+  let prompt: string;
+  if (typeof improved_prompt === "undefined") {
+    console.log("improvement failed, using original prompt")
+    prompt = post_text;
+  } else {
+    console.log("using improved prompt", improved_prompt)
+    prompt = improved_prompt.content.replace("Reworded prompt: ", "");
+  }
+  const url = await generate_prompt(prompt);
+  const blob = await uploadImage(agent, url);
+  console.log(blob);
+  const embed: AppBskyEmbedImages.Main = {
+    images: [{ image: blob, alt: prompt }],
+    // $type is required for it to show up and is different from the ts type
+    $type: "app.bsky.embed.images",
+  };
+  const reply_ref = { uri: notif.uri, cid: notif.cid };
+  return {
+    text: truncate(prompt),
+    reply: {
+      root: post_record.reply?.root ?? reply_ref,
+      parent: reply_ref,
+    },
+    embed: embed,
+  };
+}
 
 async function process_notifs(agent: BskyAgent): Promise<void> {
   const notifs = await agent.listNotifications();
@@ -140,50 +182,15 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
     if (n.isRead) continue;
     console.log(n);
     if (n.reason == "mention" || n.reason == "reply") {
-      const reply_ref = { uri: n.uri, cid: n.cid };
       await agent.like(n.uri, n.cid)
-      const post_record: AppBskyFeedPost.Record =
-        n.record as AppBskyFeedPost.Record;
-      if (!post_record.text) {
-        console.log("no text, skipping");
-        continue;
+
+      const reply_record = await handle_notification(agent, n)
+      if (typeof reply_record !== "undefined") {
+        console.log("reply record is undefined, skipping")
+        const post_result = await agent.post(reply_record);
+        await agent.repost(post_result.uri, post_result.cid)       
       }
-      // if you're tagged with an empty message in the replies, take the text from the first non-empty tweet
-
-      // if it's an image, describe it, then respond to that
-
-      // later, ideally, adapting system prompts instead of langchain: 
-      // if the conversation calls for generating an image, decide if it's more dreamy or realistic
-      // and use either vqgan or sd to generate an image
-
-      const orig_prompt = post_record.text.replace("@imogen.bsky.social", "");
-      const improved_prompt = await improve_prompt(orig_prompt);
-      let prompt: string;
-      if (typeof improved_prompt === "undefined") {
-        console.log("improvement failed, using original prompt")
-        prompt = orig_prompt;
-      } else {
-        console.log("using improved prompt", improved_prompt)
-        prompt = improved_prompt.content.replace("Reworded prompt: ", "");
-      }
-      const url = await generate_prompt(prompt);
-      const blob = await uploadImage(agent, url);
-      console.log(blob);
-      const embed: AppBskyEmbedImages.Main = {
-        images: [{ image: blob, alt: prompt }],
-        // $type is required for it to show up and is different from the ts type
-        $type: "app.bsky.embed.images",
-      };
-      const post_result = await agent.post({
-        text: truncate(prompt),
-        reply: {
-          root: post_record.reply?.root ?? reply_ref,
-          parent: reply_ref,
-        },
-        embed: embed,
-      });
       await agent.updateSeenNotifications(n.indexedAt);
-      await agent.repost(post_result.uri, post_result.cid)
     } else if (n.reason == "follow") {
       await agent.follow(n.author.did);
     }
