@@ -4,7 +4,7 @@ import {
   AppBskyEmbedImages,
   BlobRef,
   RichText,
-  AppBskyFeedDefs,
+  AppBskyFeedDefs
 } from "@atproto/api";
 import { Notification } from "@atproto/api/src/client/types/app/bsky/notification/listNotifications";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
@@ -59,6 +59,8 @@ async function improve_prompt(prompt: string) {
   console.log(completion.data.choices[0].message);
   return completion.data.choices[0].message;
 }
+
+
 
 
 type valid_model = "verdant" | "vqgan";
@@ -131,11 +133,34 @@ async function get_nonempty_parent(agent: BskyAgent, uri: string): Promise<strin
   return undefined
 }
 
-async function handle_notification(agent: BskyAgent, notif: Notification): Promise<MaybeRecord> {
-  const post_record: AppBskyFeedPost.Record =
-    notif.record as AppBskyFeedPost.Record;
+class RateLimiter {
+  limit = 2;
+  interval = 60 * 1000;
+  times: { [key: string]: number[] } = {};
+  is_allowed(id: string): boolean {
+    if (!this.times[id])
+      this.times[id] = [];
+    this.times[id] = this.times[id].filter((t) => t > Date.now() - this.interval);
+    if (this.times[id].length > this.limit) {
+      console.log("rate limit exceeded", id, this.times[id].length)
+      return false
+    };
+    const now = Date.now();
+    this.times[id].push(now);
+    return true;
+  }
+}
 
-  // debugger;
+const rate_limiter = new RateLimiter()
+
+async function handle_notification(agent: BskyAgent, notif: Notification): Promise<MaybeRecord> {
+  if (!rate_limiter.is_allowed(notif.author.did)) 
+    return undefined
+  const post_record = notif.record;
+  if (!AppBskyFeedPost.isRecord(post_record)) {
+    console.log("not a post, ignoring")
+    return undefined
+  }
 
   const post_text = post_record.text.replace(USERNAME, "") || await get_nonempty_parent(agent, notif.uri)
   if (!post_text) {
