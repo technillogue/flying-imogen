@@ -173,14 +173,18 @@ async function handle_notification(agent: BskyAgent, notif: Notification): Promi
   // if the conversation calls for generating an image, decide if it's more dreamy or realistic
   // and use either vqgan or sd to generate an image
 
-  const improved_prompt = await improve_prompt(post_text);
   let prompt: string;
-  if (typeof improved_prompt === "undefined") {
-    console.log("improvement failed, using original prompt")
-    prompt = post_text;
+  if (post_text.startsWith("!literal")) {
+    prompt = post_text.replace("!literal", "").trim()
   } else {
-    console.log("using improved prompt", improved_prompt)
-    prompt = improved_prompt.content.replace("Reworded prompt: ", "");
+    const improved_prompt = await improve_prompt(post_text);
+    if (typeof improved_prompt === "undefined") {
+      console.log("improvement failed, using original prompt")
+      prompt = post_text;
+    } else {
+      console.log("using improved prompt", improved_prompt)
+      prompt = improved_prompt.content.replace("Reworded prompt: ", "");
+    }
   }
   const url = await generate_prompt(prompt);
   const blob = await uploadImage(agent, url);
