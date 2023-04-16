@@ -87,12 +87,14 @@ type valid_model = "verdant" | "vqgan";
 
 async function generate_prompt(
   prompt: string,
+  metadata: { [key: string]: string },
   model: valid_model = "verdant"
 ): Promise<string> {
   const params = {
     model: model,
     params: { prompts: [{ text: prompt }] },
     username: process.env.SPARKL_USERNAME,
+    metadata,
   };
   const resp = await fetch("https://oneirograf-prod.fly.dev/prompt", {
     method: "POST",
@@ -231,8 +233,6 @@ async function handle_notification(
     }
   };
 
-  
-
   const get_text = (p: AppBskyFeedDefs.PostView) => {
     if (AppBskyFeedPost.isRecord(p.record))
       return p.record.text.replace(USERNAME, "").trim()
@@ -242,23 +242,9 @@ async function handle_notification(
     (p: AppBskyFeedDefs.PostView) => p.author.handle === USERNAME ? "assistant" : "user"
 
   const posts = Array.from(get_parent_posts(thread))
-
-    // .map((p) => ({ role: get_role(p), content: get_text(p) }))
-    // .filter((message) => message.content)
-    // .reverse()
-  
-  const texts = posts.map((p) => p.record).filter(AppBskyFeedPost.isRecord).map((r) => r.text.replace(USERNAME, "").trim())
-  const roles = posts.map((p) => p.author.handle === USERNAME ? "assistant" : "user")
-  // {role: key for role, key in zip(roles, texts) if key}
-
-
-
-
-
-
-
-
-  // so that the most recent post is last
+    .map((p) => ({ role: get_role(p), content: get_text(p) }))
+    .filter((message) => message.content)
+    .reverse()
 
 
 
@@ -288,7 +274,7 @@ async function handle_notification(
       prompt = improved_prompt.content.replace("Reworded prompt: ", "");
     }
   }
-  const url = await generate_prompt(prompt);
+  const url = await generate_prompt(prompt, {handle: notif.author.handle, did: notif.author.did});
   const blob = await uploadImage(agent, url);
   console.log(blob);
   const embed: AppBskyEmbedImages.Main = {
