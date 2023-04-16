@@ -55,7 +55,7 @@ async function improve_prompt(prompt: string) {
     {
       role: "assistant",
       content:
-        "Futuristic city skyline at night, neon lights, futuristic architecture, cyberpunk style.  Breathtaking city skyline, meld of past present and future, kaleidoscopic neon lights, soft warm glow of nostalgic street lamps, luminous sheen on glassy skyscrapers that pierce the heavens with daring innovative designs, palpable energy of a cyberpunk metropolis buzzing with life, bold strokes, vivid colors, dynamic futuristic art style, unquenchable thirst for progress",
+        "Breathtaking futuristic city skyline at night, soft warm glow of nostalgic street lamps, kaleidoscopic neon lights, luminous sheen on glassy skyscrapers piercing the heavens with daring innovative designs, a cyberpunk metropolis buzzing with life, bold strokes, vivid, dynamic futuristic art style",
     },
     {
       role: "user",
@@ -64,7 +64,7 @@ async function improve_prompt(prompt: string) {
     {
       role: "assistant",
       content:
-        "psychedelic 3d vector art illustration of garden full of colorful double helix dna strands and exotic flowers by lisa frank, beeple and tim hildebrandt, hyper realism, art deco, intricate, elegant, highly detailed, unreal engine, octane render,  smooth, sharp focus, sharp contrast",
+        "psychedelic 3d vector art illustration of garden full of colorful double helix dna strands and exotic flowers by lisa frank, beeple and tim hildebrandt, hyper realism, art deco, intricate, elegant, highly detailed, unreal engine, octane render, smooth, sharp focus, sharp contrast",
     },
     { role: "user", content: "Original Prompt: humanoid plant monster" },
     {
@@ -77,6 +77,7 @@ async function improve_prompt(prompt: string) {
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     messages: messages,
+    temperature: 0.9,
   });
   console.log(completion.data.choices[0].message);
   return completion.data.choices[0].message;
@@ -137,6 +138,16 @@ const USERNAME = "@imogen.bsky.social";
 
 type MaybeRecord = Omit<AppBskyFeedPost.Record, "CreatedAt"> | undefined;
 
+
+const getParentPosts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
+  let current = thread;
+  while (AppBskyFeedDefs.isThreadViewPost(current)) {
+    yield current.post;
+    current = current.parent;
+  }
+};
+
+
 async function get_nonempty_parent(
   agent: BskyAgent,
   uri: string
@@ -196,6 +207,7 @@ async function handle_notification(
     parent: reply_ref,
   };
 
+
   if (AppBskyEmbedImages.isMain(post_record.embed)) {
     const resp = await agent.getPostThread({ uri: notif.uri, depth: 0 });
     if (AppBskyFeedDefs.isThreadViewPost(resp.data.thread)) {
@@ -207,6 +219,48 @@ async function handle_notification(
       }
     }
   }
+
+  const thread = 
+    await agent.getPostThread({ uri: notif.uri, depth: 3 }).then((r) => r.data.thread);
+
+  const get_parent_posts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
+    let current = thread;
+    while (AppBskyFeedDefs.isThreadViewPost(current)) {
+      yield current.post;
+      current = current.parent;
+    }
+  };
+
+  
+
+  const get_text = (p: AppBskyFeedDefs.PostView) => {
+    if (AppBskyFeedPost.isRecord(p.record))
+      return p.record.text.replace(USERNAME, "").trim()
+  }
+
+  const get_role = 
+    (p: AppBskyFeedDefs.PostView) => p.author.handle === USERNAME ? "assistant" : "user"
+
+  const posts = Array.from(get_parent_posts(thread))
+
+    // .map((p) => ({ role: get_role(p), content: get_text(p) }))
+    // .filter((message) => message.content)
+    // .reverse()
+  
+  const texts = posts.map((p) => p.record).filter(AppBskyFeedPost.isRecord).map((r) => r.text.replace(USERNAME, "").trim())
+  const roles = posts.map((p) => p.author.handle === USERNAME ? "assistant" : "user")
+  // {role: key for role, key in zip(roles, texts) if key}
+
+
+
+
+
+
+
+
+  // so that the most recent post is last
+
+
 
   const post_text =
     post_record.text.replace(USERNAME, "") ||
