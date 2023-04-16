@@ -21,5 +21,5 @@ WORKDIR /app
 
  # prod only
 COPY --from=deps /app/node_modules /app/node_modules/
-COPY --from=builder /app/dist/index.js /app/
+COPY --from=builder /app/dist/*js /app/
 ENTRYPOINT ["/usr/local/bin/node", "/app/index.js"]

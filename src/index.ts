@@ -4,11 +4,11 @@ import {
   AppBskyEmbedImages,
   BlobRef,
   RichText,
-  AppBskyFeedDefs
+  AppBskyFeedDefs,
 } from "@atproto/api";
 import { Notification } from "@atproto/api/src/client/types/app/bsky/notification/listNotifications";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
-
+import { describe_image } from "./tools";
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
@@ -36,22 +36,44 @@ Steps:
 2. Use evocative language to convey the emotion, atmosphere, and action in the scene. Incorporate detailed imagery and style descriptors to enhance the scene. Embrace ambiguity when appropriate, prioritizing the overall vibe and essence of the image.
 3. Write the prompt in the form of alt text for the ideal image.
 
-Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, output alt text for the ideal image.`
+Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, output alt text for the ideal image.`;
 
 async function improve_prompt(prompt: string) {
   const messages: ChatCompletionRequestMessage[] = [
     // ideally 300 tokens
-    { "role": "system", "content": SYSTEM_PROMPT },
-    { "role": "user", "content": "Original Prompt: forest" },
-    { "role": "assistant", "content": "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility" },
-    { "role": "user", "content": "Original Prompt: A futuristic city skyline at night" },
-    { "role": "assistant", "content": "Futuristic city skyline at night, neon lights, futuristic architecture, cyberpunk style.  Breathtaking city skyline, meld of past present and future, kaleidoscopic neon lights, soft warm glow of nostalgic street lamps, luminous sheen on glassy skyscrapers that pierce the heavens with daring innovative designs, palpable energy of a cyberpunk metropolis buzzing with life, bold strokes, vivid colors, dynamic futuristic art style, unquenchable thirst for progress" },
-    { "role": "user", "content": "Original Prompt: garden with flowers and dna strands" },
-    { "role": "assistant", "content": "psychedelic 3d vector art illustration of garden full of colorful double helix dna strands and exotic flowers by lisa frank, beeple and tim hildebrandt, hyper realism, art deco, intricate, elegant, highly detailed, unreal engine, octane render,  smooth, sharp focus, sharp contrast"},
-    { "role": "user", "content": "Original Prompt: humanoid plant monster" },
-    { "role": "assistant", "content": "a humanoid figure plant monster, amber glow, highly detailed, digital art, sharp focus, trending on art station, plant, anime art style "},
-    { "role": "user", "content": `Original Prompt: ${prompt}` }
-  ]
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: "Original Prompt: forest" },
+    {
+      role: "assistant",
+      content:
+        "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility",
+    },
+    {
+      role: "user",
+      content: "Original Prompt: A futuristic city skyline at night",
+    },
+    {
+      role: "assistant",
+      content:
+        "Futuristic city skyline at night, neon lights, futuristic architecture, cyberpunk style.  Breathtaking city skyline, meld of past present and future, kaleidoscopic neon lights, soft warm glow of nostalgic street lamps, luminous sheen on glassy skyscrapers that pierce the heavens with daring innovative designs, palpable energy of a cyberpunk metropolis buzzing with life, bold strokes, vivid colors, dynamic futuristic art style, unquenchable thirst for progress",
+    },
+    {
+      role: "user",
+      content: "Original Prompt: garden with flowers and dna strands",
+    },
+    {
+      role: "assistant",
+      content:
+        "psychedelic 3d vector art illustration of garden full of colorful double helix dna strands and exotic flowers by lisa frank, beeple and tim hildebrandt, hyper realism, art deco, intricate, elegant, highly detailed, unreal engine, octane render,  smooth, sharp focus, sharp contrast",
+    },
+    { role: "user", content: "Original Prompt: humanoid plant monster" },
+    {
+      role: "assistant",
+      content:
+        "a humanoid figure plant monster, amber glow, highly detailed, digital art, sharp focus, trending on art station, plant, anime art style ",
+    },
+    { role: "user", content: `Original Prompt: ${prompt}` },
+  ];
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     messages: messages,
@@ -60,12 +82,12 @@ async function improve_prompt(prompt: string) {
   return completion.data.choices[0].message;
 }
 
-
-
-
 type valid_model = "verdant" | "vqgan";
 
-async function generate_prompt(prompt: string, model: valid_model = "verdant"): Promise<string> {
+async function generate_prompt(
+  prompt: string,
+  model: valid_model = "verdant"
+): Promise<string> {
   const params = {
     model: model,
     params: { prompts: [{ text: prompt }] },
@@ -88,7 +110,6 @@ async function generate_prompt(prompt: string, model: valid_model = "verdant"): 
   }
 }
 
-
 async function uploadImage(agent: BskyAgent, url: string): Promise<BlobRef> {
   const response = await fetch(url);
   const image_bytes: Uint8Array = await response
@@ -103,34 +124,38 @@ async function uploadImage(agent: BskyAgent, url: string): Promise<BlobRef> {
   else throw new Error("Image upload failed");
 }
 
-
 function truncate(text: string): string {
-  const rt = new RichText({text: text});
+  const rt = new RichText({ text: text });
   if (rt.graphemeLength > 300) {
     const truncatedText = rt.unicodeText.slice(0, 297);
     return truncatedText + "...";
   }
-  return rt.text
+  return rt.text;
 }
 
-const USERNAME = "@imogen.bsky.social"
+const USERNAME = "@imogen.bsky.social";
 
 type MaybeRecord = Omit<AppBskyFeedPost.Record, "CreatedAt"> | undefined;
 
+async function get_nonempty_parent(
+  agent: BskyAgent,
+  uri: string
+): Promise<string | undefined> {
+  console.log("getting parent of ", uri);
+  let thread_view: AppBskyFeedDefs.ThreadViewPost | unknown = await agent
+    .getPostThread({ uri: uri, depth: 3 })
+    .then((r) => r.data.thread);
 
-async function get_nonempty_parent(agent: BskyAgent, uri: string): Promise<string | undefined> {
-  console.log("getting parent of ", uri)
-  let thread_view: AppBskyFeedDefs.ThreadViewPost | unknown = await agent.getPostThread({uri: uri, depth: 3}).then((r) => r.data.thread)
-  
-  while (AppBskyFeedDefs.isThreadViewPost (thread_view)) {
+  while (AppBskyFeedDefs.isThreadViewPost(thread_view)) {
     if (AppBskyFeedPost.isRecord(thread_view.post.record)) {
-      const maybe_text = thread_view.post.record.text.replace(USERNAME, "").trim()
-      if (maybe_text)
-        return maybe_text
+      const maybe_text = thread_view.post.record.text
+        .replace(USERNAME, "")
+        .trim();
+      if (maybe_text) return maybe_text;
     }
-    thread_view = thread_view.parent
+    thread_view = thread_view.parent;
   }
-  return undefined
+  return undefined;
 }
 
 class RateLimiter {
@@ -138,51 +163,74 @@ class RateLimiter {
   interval = 60 * 1000;
   times: { [key: string]: number[] } = {};
   is_allowed(id: string): boolean {
-    if (!this.times[id])
-      this.times[id] = [];
-    this.times[id] = this.times[id].filter((t) => t > Date.now() - this.interval);
+    if (!this.times[id]) this.times[id] = [];
+    this.times[id] = this.times[id].filter(
+      (t) => t > Date.now() - this.interval
+    );
     if (this.times[id].length > this.limit) {
-      console.log("rate limit exceeded", id, this.times[id].length)
-      return false
-    };
+      console.log("rate limit exceeded", id, this.times[id].length);
+      return false;
+    }
     const now = Date.now();
     this.times[id].push(now);
     return true;
   }
 }
 
-const rate_limiter = new RateLimiter()
+const rate_limiter = new RateLimiter();
 
-async function handle_notification(agent: BskyAgent, notif: Notification): Promise<MaybeRecord> {
-  if (!rate_limiter.is_allowed(notif.author.did)) 
-    return undefined
+async function handle_notification(
+  agent: BskyAgent,
+  notif: Notification
+): Promise<MaybeRecord> {
+  if (!rate_limiter.is_allowed(notif.author.did)) return undefined;
   const post_record = notif.record;
   if (!AppBskyFeedPost.isRecord(post_record)) {
-    console.log("not a post, ignoring")
-    return undefined
+    console.log("not a post, ignoring");
+    return undefined;
   }
 
-  const post_text = post_record.text.replace(USERNAME, "") || await get_nonempty_parent(agent, notif.uri)
+  const reply_ref = { uri: notif.uri, cid: notif.cid };
+  const reply = {
+    root: post_record.reply?.root ?? reply_ref,
+    parent: reply_ref,
+  };
+
+  if (AppBskyEmbedImages.isMain(post_record.embed)) {
+    const resp = await agent.getPostThread({ uri: notif.uri, depth: 0 });
+    if (AppBskyFeedDefs.isThreadViewPost(resp.data.thread)) {
+      const embed = resp.data.thread.post.embed;
+      if (AppBskyEmbedImages.isView(embed) && embed.images.length > 0) {
+        const description = await describe_image(embed.images[0].fullsize);
+        if (description)
+          return { text: truncate(description.descriptions.join("\n")), reply };
+      }
+    }
+  }
+
+  const post_text =
+    post_record.text.replace(USERNAME, "") ||
+    (await get_nonempty_parent(agent, notif.uri));
   if (!post_text) {
-    console.log("no text in post or parent, ignoring")
-    return undefined
+    console.log("no text in post or parent, ignoring");
+    return undefined;
   }
   // if it's an image, describe it, then respond to that
 
-  // later, ideally, adapting system prompts instead of langchain: 
+  // later, ideally, adapting system prompts instead of langchain:
   // if the conversation calls for generating an image, decide if it's more dreamy or realistic
   // and use either vqgan or sd to generate an image
 
   let prompt: string;
-  if (post_text.startsWith("!literal")) {
-    prompt = post_text.replace("!literal", "").trim()
-  } else {
+  if (post_text.startsWith("!literal"))
+    prompt = post_text.replace("!literal", "").trim();
+  else {
     const improved_prompt = await improve_prompt(post_text);
     if (typeof improved_prompt === "undefined") {
-      console.log("improvement failed, using original prompt")
+      console.log("improvement failed, using original prompt");
       prompt = post_text;
     } else {
-      console.log("using improved prompt", improved_prompt)
+      console.log("using improved prompt", improved_prompt);
       prompt = improved_prompt.content.replace("Reworded prompt: ", "");
     }
   }
@@ -194,14 +242,10 @@ async function handle_notification(agent: BskyAgent, notif: Notification): Promi
     // $type is required for it to show up and is different from the ts type
     $type: "app.bsky.embed.images",
   };
-  const reply_ref = { uri: notif.uri, cid: notif.cid };
   return {
     text: truncate(prompt),
-    reply: {
-      root: post_record.reply?.root ?? reply_ref,
-      parent: reply_ref,
-    },
     embed: embed,
+    reply,
   };
 }
 
@@ -211,18 +255,17 @@ async function process_notifs(agent: BskyAgent): Promise<void> {
     if (n.isRead) continue;
     console.log(n);
     if (n.reason == "mention" || n.reason == "reply") {
-      await agent.like(n.uri, n.cid)
-
-      const reply_record = await handle_notification(agent, n)
+      await agent.like(n.uri, n.cid);
+      const reply_record = await handle_notification(agent, n);
       if (typeof reply_record !== "undefined") {
-        console.log("reply record is undefined, skipping")
+        // const reply_ref = { uri: n.uri, cid: n.cid };
+        // const reply = { root: /*post_record.reply?.root ??*/ reply_ref, parent: reply_ref }
+        // const post_result = await agent.post({reply, ...reply_record})
         const post_result = await agent.post(reply_record);
-        await agent.repost(post_result.uri, post_result.cid)       
-      }
+        await agent.repost(post_result.uri, post_result.cid);
+      } else console.log("reply record is undefined, skipping");
       await agent.updateSeenNotifications(n.indexedAt);
-    } else if (n.reason == "follow") {
-      await agent.follow(n.author.did);
-    }
+    } else if (n.reason == "follow") await agent.follow(n.author.did);
   }
   await agent.updateSeenNotifications(notifs.data.notifications[0].indexedAt);
 }
