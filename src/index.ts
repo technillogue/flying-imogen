@@ -79,6 +79,7 @@ async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
     model: "gpt-3.5-turbo",
     messages: messages,
     temperature: 0.9,
+    
   });
   console.log(completion.data.choices[0].message);
   return completion.data.choices[0].message;
@@ -137,7 +138,7 @@ function truncate(text: string): string {
   return rt.text;
 }
 
-const USERNAME = "@imogen.dryad.systems";
+const USERNAME = "imogen.dryad.systems";
 
 type MaybeRecord = Omit<FeedPost.Record, "CreatedAt"> | undefined;
 
@@ -206,7 +207,7 @@ async function handle_notification(
     p: FeedDefs.PostView
   ): ChatCompletionRequestMessage | null => {
     if (FeedPost.isRecord(p.record)) {
-      const content = p.record.text.replace(USERNAME, "").trim();
+      const content = p.record.text.replace("@" + USERNAME, "").trim();
       const role = p.author.handle === USERNAME ? "assistant" : "user";
       if (content) return { role, content };
     }
@@ -283,7 +284,7 @@ async function main(): Promise<void> {
   const agent = new BskyAgent({ service: "https://bsky.social" });
   const password = process.env.PASSWORD;
   if (!password) throw new Error("PASSWORD env var not set");
-  await agent.login({ identifier: "technillogue@gmail.com", password });
+  await agent.login({ identifier: USERNAME, password });
   console.log("logged in");
   while (true) {
     await process_notifs(agent);
