@@ -38,7 +38,7 @@ Steps:
 
 Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, output alt text for the ideal image.`;
 
-async function improve_prompt(prompt: string) {
+async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
   const messages: ChatCompletionRequestMessage[] = [
     // ideally 300 tokens
     { role: "system", content: SYSTEM_PROMPT },
@@ -72,7 +72,8 @@ async function improve_prompt(prompt: string) {
       content:
         "a humanoid figure plant monster, amber glow, highly detailed, digital art, sharp focus, trending on art station, plant, anime art style ",
     },
-    { role: "user", content: `Original Prompt: ${prompt}` },
+    ...prompts.slice(0, -1),
+    { role: "user", content: `Original Prompt: ${prompts[-1].content}` },
   ];
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
@@ -140,8 +141,7 @@ const USERNAME = "@imogen.bsky.social";
 
 type MaybeRecord = Omit<AppBskyFeedPost.Record, "CreatedAt"> | undefined;
 
-
-const getParentPosts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
+const get_parent_posts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
   let current = thread;
   while (AppBskyFeedDefs.isThreadViewPost(current)) {
     yield current.post;
@@ -222,35 +222,22 @@ async function handle_notification(
     }
   }
 
-  const thread = 
+  const thread =
     await agent.getPostThread({ uri: notif.uri, depth: 3 }).then((r) => r.data.thread);
 
-  const get_parent_posts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
-    let current = thread;
-    while (AppBskyFeedDefs.isThreadViewPost(current)) {
-      yield current.post;
-      current = current.parent;
+  const as_message = (p: AppBskyFeedDefs.PostView): ChatCompletionRequestMessage | undefined => {
+    if (AppBskyFeedPost.isRecord(p.record)) {
+      const content = p.record.text.replace(USERNAME, "").trim();
+      const role = p.author.handle === USERNAME ? "assistant" : "user";
+      if (content)
+        return { role, content }
     }
-  };
-
-  const get_text = (p: AppBskyFeedDefs.PostView) => {
-    if (AppBskyFeedPost.isRecord(p.record))
-      return p.record.text.replace(USERNAME, "").trim()
   }
 
-  const get_role = 
-    (p: AppBskyFeedDefs.PostView) => p.author.handle === USERNAME ? "assistant" : "user"
-
   const posts = Array.from(get_parent_posts(thread))
-    .map((p) => ({ role: get_role(p), content: get_text(p) }))
-    .filter((message) => message.content)
-    .reverse()
+  const messages = posts.map(as_message).filter((m): m is ChatCompletionRequestMessage => !!m).reverse()
 
-
-
-  const post_text =
-    post_record.text.replace(USERNAME, "") ||
-    (await get_nonempty_parent(agent, notif.uri));
+  const post_text = messages[-1]?.content
   if (!post_text) {
     console.log("no text in post or parent, ignoring");
     return undefined;
@@ -265,7 +252,7 @@ async function handle_notification(
   if (post_text.startsWith("!literal"))
     prompt = post_text.replace("!literal", "").trim();
   else {
-    const improved_prompt = await improve_prompt(post_text);
+    const improved_prompt = await improve_prompt(messages);
     if (typeof improved_prompt === "undefined") {
       console.log("improvement failed, using original prompt");
       prompt = post_text;
@@ -274,7 +261,7 @@ async function handle_notification(
       prompt = improved_prompt.content.replace("Reworded prompt: ", "");
     }
   }
-  const url = await generate_prompt(prompt, {handle: notif.author.handle, did: notif.author.did});
+  const url = await generate_prompt(prompt, { handle: notif.author.handle, did: notif.author.did });
   const blob = await uploadImage(agent, url);
   console.log(blob);
   const embed: AppBskyEmbedImages.Main = {
