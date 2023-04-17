@@ -16,7 +16,7 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration);
 
 const SYSTEM_PROMPT = `
-You're highly artistic, creative, insightful, an incredible writer and a master of language. 
+You are Imogen - highly artistic, creative, insightful, an incredible writer and a master of language. 
 
 Rewrite prompts for an image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
 
@@ -73,7 +73,7 @@ async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
         "a humanoid figure plant monster, amber glow, highly detailed, digital art, sharp focus, trending on art station, plant, anime art style ",
     },
     ...prompts.slice(0, -1),
-    { role: "user", content: `Original Prompt: ${prompts[-1].content}` },
+    { role: "user", content: `Original Prompt: ${prompts.at(-1)?.content}` },
   ];
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
@@ -137,7 +137,7 @@ function truncate(text: string): string {
   return rt.text;
 }
 
-const USERNAME = "@imogen.bsky.social";
+const USERNAME = "@imogen.dryad.systems";
 
 type MaybeRecord = Omit<FeedPost.Record, "CreatedAt"> | undefined;
 
@@ -149,26 +149,6 @@ const get_parent_posts = function* (thread: FeedDefs.ThreadViewPost | unknown) {
   }
 };
 
-async function get_nonempty_parent(
-  agent: BskyAgent,
-  uri: string
-): Promise<string | undefined> {
-  console.log("getting parent of ", uri);
-  let thread_view: FeedDefs.ThreadViewPost | unknown = await agent
-    .getPostThread({ uri: uri, depth: 3 })
-    .then((r) => r.data.thread);
-
-  while (FeedDefs.isThreadViewPost(thread_view)) {
-    if (FeedPost.isRecord(thread_view.post.record)) {
-      const maybe_text = thread_view.post.record.text
-        .replace(USERNAME, "")
-        .trim();
-      if (maybe_text) return maybe_text;
-    }
-    thread_view = thread_view.parent;
-  }
-  return undefined;
-}
 
 class RateLimiter {
   limit = 2;
@@ -208,21 +188,19 @@ async function handle_notification(
     parent: reply_ref,
   };
 
-  if (EmbedImages.isMain(post_record.embed)) {
-    const resp = await agent.getPostThread({ uri: notif.uri, depth: 0 });
-    if (FeedDefs.isThreadViewPost(resp.data.thread)) {
-      const embed = resp.data.thread.post.embed;
-      if (EmbedImages.isView(embed) && embed.images.length > 0) {
-        const description = await describe_image(embed.images[0].fullsize);
-        if (description)
-          return { text: truncate(description.descriptions.join("\n")), reply };
-      }
+  const thread = await agent
+    .getPostThread({ uri: notif.uri, depth: 4 })
+    .then((r) => r.data.thread);
+
+
+  if (FeedDefs.isThreadViewPost(thread)) {
+    const embed = thread.post.embed;
+    if (EmbedImages.isView(embed) && embed.images.length > 0) {
+      const description = await describe_image(embed.images[0].fullsize);
+      if (description)
+        return { text: truncate(description.descriptions.join("\n")), reply };
     }
   }
-
-  const thread = await agent
-    .getPostThread({ uri: notif.uri, depth: 3 })
-    .then((r) => r.data.thread);
 
   const as_message = (
     p: FeedDefs.PostView
@@ -240,7 +218,7 @@ async function handle_notification(
     .filter((m): m is ChatCompletionRequestMessage => !!m)
     .reverse();
 
-  const post_text = messages[-1]?.content;
+  const post_text = messages.at(-1)?.content;
   if (!post_text) {
     console.log("no text in post or parent, ignoring");
     return undefined;
