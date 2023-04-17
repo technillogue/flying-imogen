@@ -1,10 +1,10 @@
 import {
   BskyAgent,
-  AppBskyFeedPost,
-  AppBskyEmbedImages,
+  AppBskyFeedPost as FeedPost,
+  AppBskyFeedDefs as FeedDefs,
+  AppBskyEmbedImages as EmbedImages,
   BlobRef,
   RichText,
-  AppBskyFeedDefs,
 } from "@atproto/api";
 import { Notification } from "@atproto/api/src/client/types/app/bsky/notification/listNotifications";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
@@ -139,28 +139,27 @@ function truncate(text: string): string {
 
 const USERNAME = "@imogen.bsky.social";
 
-type MaybeRecord = Omit<AppBskyFeedPost.Record, "CreatedAt"> | undefined;
+type MaybeRecord = Omit<FeedPost.Record, "CreatedAt"> | undefined;
 
-const get_parent_posts = function* (thread: AppBskyFeedDefs.ThreadViewPost | unknown) {
+const get_parent_posts = function* (thread: FeedDefs.ThreadViewPost | unknown) {
   let current = thread;
-  while (AppBskyFeedDefs.isThreadViewPost(current)) {
+  while (FeedDefs.isThreadViewPost(current)) {
     yield current.post;
     current = current.parent;
   }
 };
-
 
 async function get_nonempty_parent(
   agent: BskyAgent,
   uri: string
 ): Promise<string | undefined> {
   console.log("getting parent of ", uri);
-  let thread_view: AppBskyFeedDefs.ThreadViewPost | unknown = await agent
+  let thread_view: FeedDefs.ThreadViewPost | unknown = await agent
     .getPostThread({ uri: uri, depth: 3 })
     .then((r) => r.data.thread);
 
-  while (AppBskyFeedDefs.isThreadViewPost(thread_view)) {
-    if (AppBskyFeedPost.isRecord(thread_view.post.record)) {
+  while (FeedDefs.isThreadViewPost(thread_view)) {
+    if (FeedPost.isRecord(thread_view.post.record)) {
       const maybe_text = thread_view.post.record.text
         .replace(USERNAME, "")
         .trim();
@@ -198,7 +197,7 @@ async function handle_notification(
 ): Promise<MaybeRecord> {
   if (!rate_limiter.is_allowed(notif.author.did)) return undefined;
   const post_record = notif.record;
-  if (!AppBskyFeedPost.isRecord(post_record)) {
+  if (!FeedPost.isRecord(post_record)) {
     console.log("not a post, ignoring");
     return undefined;
   }
@@ -209,12 +208,11 @@ async function handle_notification(
     parent: reply_ref,
   };
 
-
-  if (AppBskyEmbedImages.isMain(post_record.embed)) {
+  if (EmbedImages.isMain(post_record.embed)) {
     const resp = await agent.getPostThread({ uri: notif.uri, depth: 0 });
-    if (AppBskyFeedDefs.isThreadViewPost(resp.data.thread)) {
+    if (FeedDefs.isThreadViewPost(resp.data.thread)) {
       const embed = resp.data.thread.post.embed;
-      if (AppBskyEmbedImages.isView(embed) && embed.images.length > 0) {
+      if (EmbedImages.isView(embed) && embed.images.length > 0) {
         const description = await describe_image(embed.images[0].fullsize);
         if (description)
           return { text: truncate(description.descriptions.join("\n")), reply };
@@ -222,22 +220,27 @@ async function handle_notification(
     }
   }
 
-  const thread =
-    await agent.getPostThread({ uri: notif.uri, depth: 3 }).then((r) => r.data.thread);
+  const thread = await agent
+    .getPostThread({ uri: notif.uri, depth: 3 })
+    .then((r) => r.data.thread);
 
-  const as_message = (p: AppBskyFeedDefs.PostView): ChatCompletionRequestMessage | undefined => {
-    if (AppBskyFeedPost.isRecord(p.record)) {
+  const as_message = (
+    p: FeedDefs.PostView
+  ): ChatCompletionRequestMessage | null => {
+    if (FeedPost.isRecord(p.record)) {
       const content = p.record.text.replace(USERNAME, "").trim();
       const role = p.author.handle === USERNAME ? "assistant" : "user";
-      if (content)
-        return { role, content }
+      if (content) return { role, content };
     }
-  }
+    return null
+  };
 
-  const posts = Array.from(get_parent_posts(thread))
-  const messages = posts.map(as_message).filter((m): m is ChatCompletionRequestMessage => !!m).reverse()
+  const messages = Array.from(get_parent_posts(thread))
+    .map(as_message)
+    .filter((m): m is ChatCompletionRequestMessage => !!m)
+    .reverse();
 
-  const post_text = messages[-1]?.content
+  const post_text = messages[-1]?.content;
   if (!post_text) {
     console.log("no text in post or parent, ignoring");
     return undefined;
@@ -261,10 +264,11 @@ async function handle_notification(
       prompt = improved_prompt.content.replace("Reworded prompt: ", "");
     }
   }
-  const url = await generate_prompt(prompt, { handle: notif.author.handle, did: notif.author.did });
+  const metadata = {handle: notif.author.handle, did: notif.author.did}
+  const url = await generate_prompt(prompt, metadata);
   const blob = await uploadImage(agent, url);
   console.log(blob);
-  const embed: AppBskyEmbedImages.Main = {
+  const embed: EmbedImages.Main = {
     images: [{ image: blob, alt: prompt }],
     // $type is required for it to show up and is different from the ts type
     $type: "app.bsky.embed.images",
