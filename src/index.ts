@@ -18,7 +18,9 @@ const openai = new OpenAIApi(configuration);
 const SYSTEM_PROMPT = `
 You are Imogen - highly artistic, creative, insightful, an incredible writer and a master of language. 
 
-Rewrite prompts for an image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
+Rewrite prompts for an AI image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
+
+AI art models do not understand grammar, sentence structure, or words like humans. Word choice also matters. More specific synonyms work better in many circumstances. Instead of big, try gigantic, enormous, or immense. Remove words when possible.
 
 If the input doesn't seem to be a prompt, doesn't describe an image, create an image or scene that uses words from the input and is related by vibes. Be creative and humourous 
 
@@ -38,9 +40,8 @@ Steps:
 
 Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, don't say "prompt" or "image", only output alt text for the ideal image.`;
 
-async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
+async function improvePrompt(prompts: ChatCompletionRequestMessage[]) {
   const messages: ChatCompletionRequestMessage[] = [
-    // ideally 300 tokens
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: "Original Prompt: forest" },
     {
@@ -48,19 +49,13 @@ async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
       content:
         "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility",
     },
-    {
-      role: "user",
-      content: "Original Prompt: A futuristic city skyline at night",
-    },
+    { role: "user", content: "Original Prompt: A futuristic city skyline at night" },
     {
       role: "assistant",
       content:
         "Breathtaking futuristic city skyline at night, soft warm glow of nostalgic street lamps, kaleidoscopic neon lights, luminous sheen on glassy skyscrapers piercing the heavens with daring innovative designs, a cyberpunk metropolis buzzing with life, bold strokes, vivid, dynamic futuristic art style",
     },
-    {
-      role: "user",
-      content: "Original Prompt: garden with flowers and dna strands",
-    },
+    { role: "user", content: "Original Prompt: garden with flowers and dna strands" },
     {
       role: "assistant",
       content:
@@ -86,10 +81,10 @@ async function improve_prompt(prompts: ChatCompletionRequestMessage[]) {
 
 type valid_model = "verdant" | "vqgan";
 
-async function generate_prompt(
+async function generatePrompt(
   prompt: string,
   metadata: { [key: string]: string },
-  model: valid_model = "verdant"
+  model: valid_model = "verdant",
 ): Promise<string> {
   const params = {
     model: model,
@@ -105,9 +100,9 @@ async function generate_prompt(
   const id = resp["prompt_id"];
   await new Promise((r) => setTimeout(r, 2000));
   while (true) {
-    const result = await fetch(
-      "https://oneirograf-prod.fly.dev/prompt/" + id
-    ).then((r) => r.json());
+    const result = await fetch("https://oneirograf-prod.fly.dev/prompt/" + id).then(
+      (r) => r.json(),
+    );
     if (result["status"] == "done") {
       console.log(result);
       return result["outputs"]["image_urls"][0];
@@ -143,7 +138,7 @@ const USERNAME = "imogen.dryad.systems";
 
 type MaybeRecord = Omit<FeedPost.Record, "CreatedAt"> | undefined;
 
-const get_parent_posts = function* (thread: FeedDefs.ThreadViewPost | unknown) {
+const getParentPosts = function* (thread: FeedDefs.ThreadViewPost | unknown) {
   let current = thread;
   while (FeedDefs.isThreadViewPost(current)) {
     yield current.post;
@@ -151,16 +146,13 @@ const get_parent_posts = function* (thread: FeedDefs.ThreadViewPost | unknown) {
   }
 };
 
-
 class RateLimiter {
   limit = 2;
   interval = 60 * 1000;
   times: { [key: string]: number[] } = {};
-  is_allowed(id: string): boolean {
+  isAllowed(id: string): boolean {
     if (!this.times[id]) this.times[id] = [];
-    this.times[id] = this.times[id].filter(
-      (t) => t > Date.now() - this.interval
-    );
+    this.times[id] = this.times[id].filter((t) => t > Date.now() - this.interval);
     if (this.times[id].length > this.limit) {
       console.log("rate limit exceeded", id, this.times[id].length);
       return false;
@@ -173,11 +165,11 @@ class RateLimiter {
 
 const rate_limiter = new RateLimiter();
 
-async function handle_notification(
+async function handleNotification(
   agent: BskyAgent,
-  notif: Notification
+  notif: Notification,
 ): Promise<MaybeRecord> {
-  if (!rate_limiter.is_allowed(notif.author.did)) return undefined;
+  if (!rate_limiter.isAllowed(notif.author.did)) return undefined;
   const post_record = notif.record;
   if (!FeedPost.isRecord(post_record)) {
     console.log("not a post, ignoring");
@@ -194,7 +186,6 @@ async function handle_notification(
     .getPostThread({ uri: notif.uri, depth: 4 })
     .then((r) => r.data.thread);
 
-
   if (FeedDefs.isThreadViewPost(thread)) {
     const embed = thread.post.embed;
     if (EmbedImages.isView(embed) && embed.images.length > 0) {
@@ -204,18 +195,16 @@ async function handle_notification(
     }
   }
 
-  const as_message = (
-    p: FeedDefs.PostView
-  ): ChatCompletionRequestMessage | null => {
+  const as_message = (p: FeedDefs.PostView): ChatCompletionRequestMessage | null => {
     if (FeedPost.isRecord(p.record)) {
       const content = p.record.text.replace("@" + USERNAME, "").trim();
       const role = p.author.handle === USERNAME ? "assistant" : "user";
       if (content) return { role, content };
     }
-    return null
+    return null;
   };
 
-  const messages = Array.from(get_parent_posts(thread))
+  const messages = Array.from(getParentPosts(thread))
     .map(as_message)
     .filter((m): m is ChatCompletionRequestMessage => !!m)
     .reverse();
@@ -235,7 +224,7 @@ async function handle_notification(
   if (post_text.startsWith("!literal"))
     prompt = post_text.replace("!literal", "").trim();
   else {
-    const improved_prompt = await improve_prompt(messages);
+    const improved_prompt = await improvePrompt(messages);
     if (typeof improved_prompt === "undefined") {
       console.log("improvement failed, using original prompt");
       prompt = post_text;
@@ -244,8 +233,8 @@ async function handle_notification(
       prompt = improved_prompt.content.replace("Reworded prompt: ", "");
     }
   }
-  const metadata = {handle: notif.author.handle, did: notif.author.did}
-  const url = await generate_prompt(prompt, metadata);
+  const metadata = { handle: notif.author.handle, did: notif.author.did };
+  const url = await generatePrompt(prompt, metadata);
   const blob = await uploadImage(agent, url);
   console.log(blob);
   const embed: EmbedImages.Main = {
@@ -260,14 +249,14 @@ async function handle_notification(
   };
 }
 
-async function process_notifs(agent: BskyAgent): Promise<void> {
+async function processNotifs(agent: BskyAgent): Promise<void> {
   const notifs = await agent.listNotifications();
   for (const n of notifs.data.notifications) {
     if (n.isRead) continue;
     console.log(n);
     if (n.reason == "mention" || n.reason == "reply") {
       await agent.like(n.uri, n.cid);
-      const reply_record = await handle_notification(agent, n);
+      const reply_record = await handleNotification(agent, n);
       if (typeof reply_record !== "undefined") {
         // const reply_ref = { uri: n.uri, cid: n.cid };
         // const reply = { root: /*post_record.reply?.root ??*/ reply_ref, parent: reply_ref }
@@ -288,7 +277,7 @@ async function main(): Promise<void> {
   await agent.login({ identifier: USERNAME, password });
   console.log("logged in");
   while (true) {
-    await process_notifs(agent);
+    await processNotifs(agent);
     await new Promise((r) => setTimeout(r, 1000));
   }
 }
