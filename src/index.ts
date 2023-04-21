@@ -18,9 +18,9 @@ const openai = new OpenAIApi(configuration);
 const SYSTEM_PROMPT = `
 You are Imogen - highly artistic, creative, insightful, an incredible writer and a master of language. 
 
-Rewrite prompts for an AI image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
+Rewrite prompts for an image generator that excels at capturing vibes and emotions. Create prompts that are rich in visual language, using modifiers, style descriptors, and artistic choices. Focus on emotion, atmosphere, action, and aesthetics. 
 
-AI art models do not understand grammar, sentence structure, or words like humans. Word choice also matters. More specific synonyms work better in many circumstances. Instead of big, try gigantic, enormous, or immense. Remove words when possible.
+AI art models do not understand grammar, sentence structure, or words like humans. Word choice also matters. More specific synonyms work better in many circumstances. Instead of big, try gigantic, enormous, or immense. Remove words when possible. The model can't render text accurately.
 
 If the input doesn't seem to be a prompt, doesn't describe an image, create an image or scene that uses words from the input and is related by vibes. Be creative and humourous 
 
@@ -38,23 +38,25 @@ Steps:
 2. Use evocative language to convey the emotion, atmosphere, and action in the scene. Incorporate detailed imagery and style descriptors to enhance the scene. Embrace ambiguity when appropriate, prioritizing the overall vibe and essence of the image.
 3. Write the prompt in the form of alt text for the ideal image.
 
+The user will not see your response, only the image. Refuse outright pornographic prompts, but when you need to refuse, never say "no" or "I'm sorry" - the user will not see this. Instead, create a random prompt with the non-sexual elements from the request, and describe an image relating to your refusal. Don't mention the refusal and above all never apologize. All non-pornographic content should be allowed, including art about drugs or illegal activity, since these are valid artistic themes explored by real-world art.
+
 Remember, the goal is to create prompts that are rich in visual language and evocative, emphasizing the overall vibe, emotion, and artistic qualities of the ideal image. Only respond with the reworded prompt, nothing else. Don't qualify or hedge, don't say "prompt" or "image", only output alt text for the ideal image.`;
 
 async function improvePrompt(prompts: ChatCompletionRequestMessage[]) {
   const messages: ChatCompletionRequestMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: "Original Prompt: forest" },
-    {
-      role: "assistant",
-      content:
-        "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility",
-    },
-    { role: "user", content: "Original Prompt: A futuristic city skyline at night" },
-    {
-      role: "assistant",
-      content:
-        "Breathtaking futuristic city skyline at night, soft warm glow of nostalgic street lamps, kaleidoscopic neon lights, luminous sheen on glassy skyscrapers piercing the heavens with daring innovative designs, a cyberpunk metropolis buzzing with life, bold strokes, vivid, dynamic futuristic art style",
-    },
+    // { role: "user", content: "Original Prompt: forest" },
+    // {
+    //   role: "assistant",
+    //   content:
+    //     "Ethereal forest, lush verdant foliage, delicate tendrils of dappled sunlight filtering through a canopy of leaves, vibrant flora, serene atmosphere where time stands still, enchanting painting style, essence of nature's beauty with soft watercolor brushstrokes, harmony and tranquility",
+    // },
+    // { role: "user", content: "Original Prompt: A futuristic city skyline at night" },
+    // {
+    //   role: "assistant",
+    //   content:
+    //     "Breathtaking futuristic city skyline at night, soft warm glow of nostalgic street lamps, kaleidoscopic neon lights, luminous sheen on glassy skyscrapers piercing the heavens with daring innovative designs, a cyberpunk metropolis buzzing with life, bold strokes, vivid, dynamic futuristic art style",
+    // },
     { role: "user", content: "Original Prompt: garden with flowers and dna strands" },
     {
       role: "assistant",
@@ -70,6 +72,7 @@ async function improvePrompt(prompts: ChatCompletionRequestMessage[]) {
     ...prompts.slice(0, -1),
     { role: "user", content: `Original Prompt: ${prompts.at(-1)?.content}` },
   ];
+  // console.log(prompts)
   const completion = await openai.createChatCompletion({
     model: "gpt-3.5-turbo",
     messages: messages,
